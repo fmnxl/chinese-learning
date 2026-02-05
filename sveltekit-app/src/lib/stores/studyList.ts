@@ -1,5 +1,11 @@
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
+import {
+	saveStudyListIDB,
+	loadStudyListIDB,
+	isIndexedDBAvailable,
+	migrateFromLocalStorage
+} from './idb';
 
 export interface StudyItem {
 	type: 'character' | 'word';
@@ -26,8 +32,11 @@ export interface StudyList {
 
 const STORAGE_KEY = 'study_list';
 
-// Initialize from localStorage
-function loadFromStorage(): StudyList {
+// Track which storage backend we're using
+let useIndexedDB = false;
+
+// Initialize from storage (IndexedDB or localStorage)
+async function loadFromStorage(): Promise<StudyList> {
 	if (!browser) {
 		return {
 			items: [],
@@ -36,9 +45,29 @@ function loadFromStorage(): StudyList {
 		};
 	}
 
+	// Try IndexedDB first if available
+	if (isIndexedDBAvailable()) {
+		try {
+			// Attempt migration from localStorage
+			await migrateFromLocalStorage();
+
+			// Load from IndexedDB
+			const idbData = await loadStudyListIDB();
+			if (idbData) {
+				useIndexedDB = true;
+				console.log('Loaded study list from IndexedDB');
+				return idbData;
+			}
+		} catch (e) {
+			console.error('Failed to load from IndexedDB, falling back to localStorage:', e);
+		}
+	}
+
+	// Fallback to localStorage
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
 		if (stored) {
+			console.log('Loaded study list from localStorage');
 			return JSON.parse(stored);
 		}
 	} catch (e) {
@@ -52,20 +81,58 @@ function loadFromStorage(): StudyList {
 	};
 }
 
-// Save to localStorage
-function saveToStorage(list: StudyList) {
+// Save to storage (IndexedDB or localStorage)
+async function saveToStorage(list: StudyList): Promise<void> {
 	if (!browser) return;
 
+	// Determine which storage to use based on data size
+	const shouldUseIDB = isIndexedDBAvailable() && (useIndexedDB || list.items.length > 100);
+
+	if (shouldUseIDB) {
+		try {
+			await saveStudyListIDB(list);
+			useIndexedDB = true;
+			console.log('Saved study list to IndexedDB');
+			return;
+		} catch (e) {
+			console.error('Failed to save to IndexedDB, falling back to localStorage:', e);
+		}
+	}
+
+	// Fallback to localStorage
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 	} catch (e) {
 		console.error('Failed to save study list to localStorage:', e);
+		// If localStorage fails due to quota, try IndexedDB as last resort
+		if (isIndexedDBAvailable()) {
+			try {
+				await saveStudyListIDB(list);
+				useIndexedDB = true;
+			} catch (idbError) {
+				console.error('Both storage methods failed:', idbError);
+			}
+		}
 	}
 }
 
 // Create the main store
 const createStudyListStore = () => {
-	const { subscribe, set, update } = writable<StudyList>(loadFromStorage());
+	// Start with empty state
+	const initialState: StudyList = {
+		items: [],
+		createdAt: Date.now(),
+		lastModified: Date.now()
+	};
+
+	const { subscribe, set, update } = writable<StudyList>(initialState);
+
+	// Load data asynchronously if in browser
+	if (browser) {
+		loadFromStorage().then((data) => {
+			set(data);
+		});
+	}
 
 	return {
 		subscribe,
@@ -133,8 +200,7 @@ const createStudyListStore = () => {
 			set(emptyList);
 			saveToStorage(emptyList);
 		},
-		exportToJSON: () => {
-			const list = loadFromStorage();
+		exportToJSON: (list: StudyList) => {
 			return JSON.stringify(list, null, 2);
 		},
 		importFromJSON: (json: string) => {
@@ -152,6 +218,16 @@ const createStudyListStore = () => {
 };
 
 export const studyList = createStudyListStore();
+
+// Export storage backend status
+export const storageBackend = writable<'localStorage' | 'IndexedDB' | 'loading'>('loading');
+
+// Update storage backend status when loading completes
+if (browser) {
+	loadFromStorage().then(() => {
+		storageBackend.set(useIndexedDB ? 'IndexedDB' : 'localStorage');
+	});
+}
 
 // Derived store: check if item is in list
 export const isInStudyList = derived(studyList, ($list) => {
