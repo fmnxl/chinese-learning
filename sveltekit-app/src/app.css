@@ -997,154 +997,8 @@
             cursor: not-allowed;
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            header {
-                padding: 0.75rem 1rem;
-            }
 
-            .header-content {
-                flex-wrap: wrap;
-                gap: 0.5rem;
-            }
-
-            .logo {
-                font-size: 1.2rem;
-            }
-
-            .header-tabs {
-                order: 3;
-                width: 100%;
-                justify-content: center;
-                flex-wrap: wrap;
-            }
-
-            .header-tabs .tab {
-                padding: 0.4rem 0.75rem;
-                font-size: 0.8rem;
-            }
-
-            .nav-breadcrumb {
-                font-size: 0.85rem;
-                flex-wrap: wrap;
-            }
-
-            main {
-                padding: 1rem;
-            }
-
-            .radical-grid {
-                grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-                gap: 0.75rem;
-            }
-
-            .radical-card {
-                padding: 1rem;
-            }
-
-            .radical-char {
-                font-size: 2rem;
-            }
-
-            .character-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .radical-hero .char {
-                font-size: 4rem;
-            }
-
-            /* Character Hero Mobile */
-            .character-hero.compact {
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-                gap: 1rem;
-            }
-
-            .character-hero .hero-chars {
-                justify-content: center;
-            }
-
-            .character-hero .hero-char {
-                font-size: 5rem;
-            }
-
-            .character-hero .hero-char.variant {
-                font-size: 3rem;
-            }
-
-            .character-hero .hero-content {
-                width: 100%;
-            }
-
-            .character-hero .hero-header {
-                flex-direction: column;
-                align-items: center;
-                gap: 0.5rem;
-            }
-
-            .character-hero .pinyin {
-                font-size: 1.25rem;
-            }
-
-            .character-hero .definition {
-                font-size: 0.9rem;
-            }
-
-            .character-hero .hero-links {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-
-            /* IDS Tree Mobile */
-            .decomposition-box {
-                padding: 1rem;
-            }
-
-            .ids-op {
-                font-size: 1.25rem;
-            }
-
-            .component-tag .char {
-                font-size: 1rem;
-            }
-
-            .component-tag .meaning {
-                max-width: 80px;
-                font-size: 0.65rem;
-            }
-        }
-
-        /* Extra small screens */
-        @media (max-width: 480px) {
-            .character-hero .hero-char {
-                font-size: 4rem;
-            }
-
-            .character-hero .hero-char.variant {
-                font-size: 2.5rem;
-            }
-
-            .header-tabs .tab {
-                padding: 0.3rem 0.5rem;
-                font-size: 0.75rem;
-            }
-
-            .hero-links {
-                gap: 0.5rem;
-            }
-
-            .meta-link {
-                padding: 0.4rem 0.75rem;
-                font-size: 0.8rem;
-            }
-
-            .ask-ai-btn {
-                padding: 0.4rem 0.75rem;
-                font-size: 0.8rem;
-            }
-        }
+        /* Responsive styles moved to end of file for bottom-nav support */
         
         /* Settings & Chat Panel Styles */
         .settings-btn {
@@ -1506,4 +1360,270 @@
         @keyframes typing {
             0%, 80%, 100% { transform: scale(0); }
             40% { transform: scale(1); }
+        }
+
+        /* Quiz Tab in Header */
+        .quiz-tab {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%) !important;
+            color: white !important;
+            font-weight: 600;
+        }
+
+        .quiz-tab:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+        }
+
+        .quiz-tab .quiz-icon {
+            margin-right: 0.25rem;
+        }
+
+        /* Logo as link */
+        .logo {
+            text-decoration: none;
+        }
+
+        /* Bottom Navigation Bar */
+        .bottom-nav {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(180deg, var(--bg-card) 0%, #151519 100%);
+            border-top: 1px solid var(--border);
+            padding: 0.5rem 0;
+            padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0));
+            z-index: 100;
+            justify-content: space-around;
+            align-items: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .bottom-nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.5rem 0.75rem;
+            text-decoration: none;
+            color: var(--text-muted);
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            min-width: 56px;
+        }
+
+        .bottom-nav-item:hover,
+        .bottom-nav-item.active {
+            color: var(--accent);
+        }
+
+        .bottom-nav-item.active .nav-icon {
+            transform: scale(1.1);
+        }
+
+        .bottom-nav-item.quiz-item {
+            color: var(--accent);
+        }
+
+        .bottom-nav-item.quiz-item.active {
+            color: #ff8e53;
+        }
+
+        .nav-icon {
+            font-size: 1.35rem;
+            line-height: 1;
+            transition: transform 0.2s;
+        }
+
+        .nav-label {
+            font-size: 0.65rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .nav-badge {
+            position: absolute;
+            top: 0;
+            right: 0.25rem;
+            background: var(--accent);
+            color: white;
+            font-size: 0.6rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 10px;
+            font-weight: 600;
+            min-width: 16px;
+            text-align: center;
+        }
+
+        /* Mobile: Show bottom nav, hide header tabs */
+        @media (max-width: 768px) {
+            .bottom-nav {
+                display: flex;
+            }
+
+            .header-tabs {
+                display: none;
+            }
+
+            .header-actions .study-btn {
+                display: none;
+            }
+
+            header {
+                padding: 0.75rem 1rem;
+            }
+
+            .header-content {
+                justify-content: space-between;
+            }
+
+            .logo {
+                font-size: 1.2rem;
+            }
+
+            main {
+                padding: 1rem;
+                padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0));
+            }
+
+            .nav-breadcrumb {
+                font-size: 0.85rem;
+                flex-wrap: wrap;
+            }
+
+            .radical-grid {
+                grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+                gap: 0.75rem;
+            }
+
+            .radical-card {
+                padding: 1rem;
+            }
+
+            .radical-char {
+                font-size: 2rem;
+            }
+
+            .character-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .radical-hero .char {
+                font-size: 4rem;
+            }
+
+            /* Character Hero Mobile */
+            .character-hero.compact {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                gap: 1rem;
+            }
+
+            .character-hero .hero-chars {
+                justify-content: center;
+            }
+
+            .character-hero .hero-char {
+                font-size: 5rem;
+            }
+
+            .character-hero .hero-char.variant {
+                font-size: 3rem;
+            }
+
+            .character-hero .hero-content {
+                width: 100%;
+            }
+
+            .character-hero .hero-header {
+                flex-direction: column;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .character-hero .pinyin {
+                font-size: 1.25rem;
+            }
+
+            .character-hero .definition {
+                font-size: 0.9rem;
+            }
+
+            .character-hero .hero-links {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            /* IDS Tree Mobile */
+            .decomposition-box {
+                padding: 1rem;
+            }
+
+            .ids-op {
+                font-size: 1.25rem;
+            }
+
+            .component-tag .char {
+                font-size: 1rem;
+            }
+
+            .component-tag .meaning {
+                max-width: 80px;
+                font-size: 0.65rem;
+            }
+
+            /* Chat panel adjustments for bottom nav */
+            .chat-panel {
+                bottom: calc(4rem + env(safe-area-inset-bottom, 0));
+            }
+
+            /* Study list panel adjustments */
+            .study-list-panel {
+                bottom: calc(4rem + env(safe-area-inset-bottom, 0));
+                max-height: calc(80vh - 4rem);
+            }
+        }
+
+        /* Extra small screens */
+        @media (max-width: 480px) {
+            .character-hero .hero-char {
+                font-size: 4rem;
+            }
+
+            .character-hero .hero-char.variant {
+                font-size: 2.5rem;
+            }
+
+            .hero-links {
+                gap: 0.5rem;
+            }
+
+            .meta-link {
+                padding: 0.4rem 0.75rem;
+                font-size: 0.8rem;
+            }
+
+            .ask-ai-btn {
+                padding: 0.4rem 0.75rem;
+                font-size: 0.8rem;
+            }
+
+            .bottom-nav-item {
+                padding: 0.4rem 0.5rem;
+                min-width: 48px;
+            }
+
+            .nav-icon {
+                font-size: 1.2rem;
+            }
+
+            .nav-label {
+                font-size: 0.6rem;
+            }
         }

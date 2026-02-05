@@ -33,14 +33,17 @@
 
 <header>
 	<div class="header-content">
-		<div class="logo">漢字 Radicals</div>
+		<a href="/" class="logo">漢字 Radicals</a>
 		<nav class="header-tabs">
 			<a href="/" class="tab" class:active={$page.url.pathname === '/'}>By Radical</a>
 			<a href="/learn" class="tab" class:active={$page.url.pathname === '/learn'}>By Level</a>
 			<a href="/phonetic" class="tab" class:active={$page.url.pathname.startsWith('/phonetic')}>By Component</a>
+			<a href="/learn/quiz" class="tab quiz-tab" class:active={$page.url.pathname === '/learn/quiz'}>
+				<span class="quiz-icon">🎯</span> Quiz
+			</a>
 		</nav>
 		<div class="header-actions">
-			<button class="icon-btn" on:click={() => studyListOpen = !studyListOpen} title="Study List">
+			<button class="icon-btn study-btn" on:click={() => studyListOpen = !studyListOpen} title="Study List">
 				☆
 				{#if $studyListStats.total > 0}
 					<span class="badge">{$studyListStats.total}</span>
@@ -60,6 +63,33 @@
 <ChatPanel />
 
 <StudyListPanel bind:open={studyListOpen} />
+
+<!-- Bottom Navigation for Mobile -->
+<nav class="bottom-nav">
+	<a href="/" class="bottom-nav-item" class:active={$page.url.pathname === '/'}>
+		<span class="nav-icon">🏠</span>
+		<span class="nav-label">Browse</span>
+	</a>
+	<a href="/learn" class="bottom-nav-item" class:active={$page.url.pathname === '/learn'}>
+		<span class="nav-icon">📊</span>
+		<span class="nav-label">Levels</span>
+	</a>
+	<a href="/phonetic" class="bottom-nav-item" class:active={$page.url.pathname.startsWith('/phonetic')}>
+		<span class="nav-icon">🧩</span>
+		<span class="nav-label">Parts</span>
+	</a>
+	<a href="/learn/quiz" class="bottom-nav-item quiz-item" class:active={$page.url.pathname === '/learn/quiz'}>
+		<span class="nav-icon">🎯</span>
+		<span class="nav-label">Quiz</span>
+	</a>
+	<button class="bottom-nav-item" class:active={studyListOpen} on:click={() => studyListOpen = !studyListOpen}>
+		<span class="nav-icon">☆</span>
+		<span class="nav-label">Study</span>
+		{#if $studyListStats.total > 0}
+			<span class="nav-badge">{$studyListStats.total}</span>
+		{/if}
+	</button>
+</nav>
 
 <!-- Settings Modal -->
 {#if settingsOpen}
