@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { studyList, studyListStats } from '$lib/stores/studyList';
+	import { studyList, studyListStats, storageBackend } from '$lib/stores/studyList';
 	import { loadData } from '$lib/data/loader';
 	import type { Character, Word } from '$lib/data/loader';
 
@@ -29,7 +29,7 @@
 	}
 
 	function handleExport() {
-		const json = studyList.exportToJSON();
+		const json = studyList.exportToJSON($studyList);
 		const blob = new Blob([json], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
@@ -129,7 +129,13 @@
 		</div>
 	</div>
 
+	<div class="storage-info">
+		<span class="storage-icon">{$storageBackend === 'IndexedDB' ? '💾' : '📁'}</span>
+		<span class="storage-text">Storage: {$storageBackend}</span>
+	</div>
+
 	<div class="actions">
+		<a href="/learn/quiz" class="action-btn quiz-btn" on:click={closePanel}>🎯 Start Quiz</a>
 		<button on:click={handleExport} class="action-btn">Export</button>
 		<button on:click={handleImport} class="action-btn">Import</button>
 		<button on:click={handleClearAll} class="action-btn danger">Clear All</button>
@@ -289,6 +295,24 @@
 		text-align: center;
 	}
 
+	.storage-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 1.5rem;
+		font-size: 0.75rem;
+		color: #6b7280;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.storage-icon {
+		font-size: 0.875rem;
+	}
+
+	.storage-text {
+		font-family: monospace;
+	}
+
 	.actions {
 		display: flex;
 		gap: 0.5rem;
@@ -320,6 +344,19 @@
 	.action-btn.danger:hover {
 		background: #fef2f2;
 		border-color: #dc2626;
+	}
+
+	.quiz-btn {
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border: none;
+		text-decoration: none;
+		text-align: center;
+	}
+
+	.quiz-btn:hover {
+		background: linear-gradient(135deg, #7c3aed, #6d28d9);
+		transform: translateY(-1px);
 	}
 
 	.items {
