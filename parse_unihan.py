@@ -348,23 +348,33 @@ def parse_variants(zip_data: bytes) -> tuple:
                 
                 if field == "kTraditionalVariant":
                     # This char is simplified, value is traditional
-                    # Value might have multiple codepoints - skip self-references, take first different one
+                    # Value might have multiple codepoints
                     trad_cps = [v.strip() for v in value.split() if v.strip().startswith("U+")]
-                    for tcp in trad_cps:
-                        trad_char = chr(int(tcp[2:].split("<")[0], 16))
-                        if trad_char != char:  # Skip self-reference
-                            simp_to_trad[char] = trad_char
-                            break
+                    trad_chars = [chr(int(tcp[2:].split("<")[0], 16)) for tcp in trad_cps]
+                    
+                    # If self is the ONLY variant, character is valid in both scripts
+                    # (e.g., 冬 has "U+51AC U+9F15" but 冬 itself IS 51AC, so if it were only U+51AC, skip)
+                    # But if there are other variants, take the first different one
+                    # (e.g., 么 has "U+4E48 U+5E7A U+9EBC U+9EBD" - self + others, take 幺 or 麼)
+                    other_variants = [c for c in trad_chars if c != char]
+                    
+                    if other_variants:
+                        simp_to_trad[char] = other_variants[0]
+                    # else: only self-reference, skip (character valid in both scripts)
                 
                 elif field == "kSimplifiedVariant":
                     # This char is traditional, value is simplified
-                    # Value might have multiple codepoints - skip self-references, take first different one
+                    # Value might have multiple codepoints
                     simp_cps = [v.strip() for v in value.split() if v.strip().startswith("U+")]
-                    for scp in simp_cps:
-                        simp_char = chr(int(scp[2:].split("<")[0], 16))
-                        if simp_char != char:  # Skip self-reference
-                            trad_to_simp[char] = simp_char
-                            break
+                    simp_chars = [chr(int(scp[2:].split("<")[0], 16)) for scp in simp_cps]
+                    
+                    # If the character itself is in the list, it's valid in both scripts
+                    if char in simp_chars:
+                        continue  # Character is valid in both scripts
+                    
+                    # Otherwise, take the first variant
+                    if simp_chars:
+                        trad_to_simp[char] = simp_chars[0]
     
     return simp_to_trad, trad_to_simp
 
@@ -374,11 +384,15 @@ def parse_cedict(path: Path) -> dict:
     Parse CC-CEDICT dictionary.
     Returns: {
         "by_char": {char: [words containing char]},
-        "words": {simplified: {pinyin, definition, traditional}}
+        "words": {simplified: {pinyin, definition, traditional}},
+        "char_simp_to_trad": {simp_char: trad_char},  # From single-char entries
+        "char_trad_to_simp": {trad_char: simp_char},  # From single-char entries
     }
     """
     words = {}
     by_char = defaultdict(list)
+    char_simp_to_trad = {}  # Authoritative simp→trad from single-char CEDICT entries
+    char_trad_to_simp = {}  # Authoritative trad→simp from single-char CEDICT entries
     
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -400,12 +414,34 @@ def parse_cedict(path: Path) -> dict:
                 "definition": definitions.split("/")[0]  # First definition
             }
             
+            # For single-character entries, extract char-level simp↔trad mappings
+            # CEDICT is authoritative for these common characters
+            if len(simplified) == 1 and len(traditional) == 1:
+                if simplified != traditional:
+                    # Only store if they differ (e.g., 么→麼, but not 冬→冬)
+                    if simplified not in char_simp_to_trad:
+                        char_simp_to_trad[simplified] = traditional
+                    if traditional not in char_trad_to_simp:
+                        char_trad_to_simp[traditional] = simplified
+                else:
+                    # Same in both scripts - store as explicit "no variant"
+                    # This prevents Unihan fallback from incorrectly assigning variants
+                    if simplified not in char_simp_to_trad:
+                        char_simp_to_trad[simplified] = None  # Explicitly no traditional variant
+                    if traditional not in char_trad_to_simp:
+                        char_trad_to_simp[traditional] = None  # Explicitly no simplified variant
+            
             # Index by character
             for char in simplified:
                 if simplified not in by_char[char]:
                     by_char[char].append(simplified)
     
-    return {"words": words, "by_char": dict(by_char)}
+    return {
+        "words": words,
+        "by_char": dict(by_char),
+        "char_simp_to_trad": char_simp_to_trad,
+        "char_trad_to_simp": char_trad_to_simp,
+    }
 
 
 def parse_subtlex(path: Path) -> dict:
@@ -624,6 +660,11 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
         # Get characters this appears in as component (limit to 20)
         derived_chars = appears_in.get(char, [])
         
+        # Prefer CEDICT mappings (authoritative for common chars) over Unihan
+        # CEDICT correctly handles cases like 冬=冬 (same) and 么→麼 (different)
+        cedict_simp_to_trad = cedict.get("char_simp_to_trad", {})
+        cedict_trad_to_simp = cedict.get("char_trad_to_simp", {})
+        
         char_data = {
             "radical": str(radical_num),
             "strokes": rs["strokes"],
@@ -635,8 +676,10 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
             "components": ids_info.get("components", []),
             "words": char_words,
             "appearsIn": derived_chars,
-            "traditional": simp_to_trad.get(char),  # If simplified, link to traditional
-            "simplified": trad_to_simp.get(char),   # If traditional, link to simplified
+            # CEDICT is authoritative if it has this char; fallback to Unihan otherwise
+            # Note: CEDICT stores None for chars that are same in both scripts (e.g., 冬)
+            "traditional": cedict_simp_to_trad[char] if char in cedict_simp_to_trad else simp_to_trad.get(char),
+            "simplified": cedict_trad_to_simp[char] if char in cedict_trad_to_simp else trad_to_simp.get(char),
         }
         
         characters[char] = char_data
@@ -680,8 +723,9 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
                 "components": ids_data.get(comp, {}).get("components", []),
                 "words": [],
                 "appearsIn": appears_in.get(comp, []),
-                "traditional": simp_to_trad.get(comp),
-                "simplified": trad_to_simp.get(comp),
+                # CEDICT is authoritative if it has this char; fallback to Unihan otherwise
+                "traditional": cedict_simp_to_trad[comp] if comp in cedict_simp_to_trad else simp_to_trad.get(comp),
+                "simplified": cedict_trad_to_simp[comp] if comp in cedict_trad_to_simp else trad_to_simp.get(comp),
             }
             added_components += 1
     
