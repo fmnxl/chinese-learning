@@ -14,7 +14,8 @@
 		type QuizMode,
 		type QuizSource,
 		type AnswerMode,
-		type CharacterScript
+		type CharacterScript,
+		getValidAnswerModes
 	} from '$lib/srs/quiz';
 	import { formatInterval, getLearningStage, getStageColor } from '$lib/srs/sm2';
 	import {
@@ -22,7 +23,7 @@
 		normalizePinyin as gradingNormalizePinyin,
 		type GradingResult
 	} from '$lib/srs/grading';
-	import { studyListStats } from '$lib/stores/studyList';
+	import { studyList, studyListStats, isInStudyList } from '$lib/stores/studyList';
 
 	let showSetup = true;
 	let cardData: Character | Word | null = null;
@@ -44,15 +45,62 @@
 	let typingSubmitted = false;
 	let typingCorrect = false;
 
+	// Tone selection state for pronunciation mode
+	let selectedTone: number | null = null;
+	let toneCorrect = false;
+
 	// Response time tracking for automatic grading
 	let cardStartTime: number = 0;
 	let lastGradingResult: GradingResult | null = null;
+
+	// Pending continue state (after answering, wait for user to click Continue)
+	let pendingContinue: { quality: number; wasCorrect: boolean } | null = null;
+
+	// Timer display
+	let elapsedTime: number = 0;
+	let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+	// Time thresholds (in ms) based on base reading time (2s + 0.3s * 1 char = 2.3s)
+	// ratio 1.5 = 3.45s, ratio 3 = 6.9s, ratio 5 = 11.5s
+	const TIME_THRESHOLDS = {
+		green: 3500,   // Fast/confident
+		yellow: 7000,  // Normal
+		orange: 12000  // Slow (above this is very slow/red)
+	};
+
+	function startTimer() {
+		if (timerInterval) clearInterval(timerInterval);
+		elapsedTime = 0;
+		timerInterval = setInterval(() => {
+			elapsedTime = Date.now() - cardStartTime;
+		}, 100);
+	}
+
+	function stopTimer() {
+		if (timerInterval) {
+			clearInterval(timerInterval);
+			timerInterval = null;
+		}
+	}
+
+	function getTimerColor(ms: number): string {
+		if (ms < TIME_THRESHOLDS.green) return 'timer-green';
+		if (ms < TIME_THRESHOLDS.yellow) return 'timer-yellow';
+		if (ms < TIME_THRESHOLDS.orange) return 'timer-orange';
+		return 'timer-red';
+	}
+
+	function formatTimer(ms: number): string {
+		const seconds = ms / 1000;
+		return seconds.toFixed(1) + 's';
+	}
 
 	// Config options
 	const deckSizes = [5, 10, 20, 50];
 	const modes: { value: QuizMode; label: string; description: string }[] = [
 		{ value: 'recognition', label: 'Recognition', description: 'See character → guess meaning' },
-		{ value: 'recall', label: 'Recall', description: 'See meaning → guess character' }
+		{ value: 'recall', label: 'Recall', description: 'See meaning → guess character' },
+		{ value: 'pronunciation', label: 'Pronunciation', description: 'See character + meaning → type pinyin' }
 	];
 
 	const answerModes: { value: AnswerMode; label: string; description: string }[] = [
@@ -60,6 +108,17 @@
 		{ value: 'multiple_choice', label: 'Multiple Choice', description: 'Pick from 4 options' },
 		{ value: 'typing', label: 'Type Answer', description: 'Type pinyin or character' }
 	];
+
+	// Filter valid answer modes based on selected quiz mode
+	$: validAnswerModeValues = getValidAnswerModes($quizConfig.mode);
+	$: filteredAnswerModes = answerModes.filter(m => validAnswerModeValues.includes(m.value));
+
+	// Auto-switch to valid answer mode if current selection is invalid
+	$: {
+		if (!validAnswerModeValues.includes($quizConfig.answerMode)) {
+			quizConfig.setAnswerMode(validAnswerModeValues[0]);
+		}
+	}
 
 	const scriptOptions: { value: CharacterScript; label: string }[] = [
 		{ value: 'simplified', label: '简 Simplified' },
@@ -166,10 +225,13 @@
 		typingAnswer = '';
 		typingSubmitted = false;
 		typingCorrect = false;
+		selectedTone = null;
+		toneCorrect = false;
 		lastGradingResult = null;
 		
 		// Start response timer for automatic grading
 		cardStartTime = Date.now();
+		startTimer();
 	}
 
 	function generateChoiceOptions() {
@@ -180,14 +242,34 @@
 			? (cardData.definition || 'Unknown')
 			: ($currentCard?.item.id || '');
 		
-		// Get random distractors
-		const allChars = Object.entries(allData.characters);
+		// Filter characters by the same source settings as the quiz
+		let filteredChars = Object.entries(allData.characters);
+		
+		if ($quizConfig.source.type === 'grade') {
+			const gradeMin = $quizConfig.source.gradeMin ?? 1;
+			const gradeMax = $quizConfig.source.gradeMax ?? 6;
+			filteredChars = filteredChars.filter(([, data]) => {
+				const grade = data.gradeLevel ?? 99;
+				return grade >= gradeMin && grade <= gradeMax;
+			});
+		} else if ($quizConfig.source.type === 'frequency') {
+			const freqMin = $quizConfig.source.freqMin ?? 1;
+			const freqMax = $quizConfig.source.freqMax ?? 500;
+			filteredChars = filteredChars.filter(([, data]) => {
+				const freq = data.charFrequency ?? 99999;
+				return freq >= freqMin && freq <= freqMax;
+			});
+		}
+		
+		// Get random distractors from filtered pool
 		const distractors: string[] = [];
 		const usedAnswers = new Set([correctAnswer]);
 		
-		while (distractors.length < 3 && allChars.length > 0) {
-			const randomIndex = Math.floor(Math.random() * allChars.length);
-			const [char, data] = allChars[randomIndex];
+		// First try to get distractors from the filtered pool
+		let charPool = [...filteredChars];
+		while (distractors.length < 3 && charPool.length > 0) {
+			const randomIndex = Math.floor(Math.random() * charPool.length);
+			const [char, data] = charPool[randomIndex];
 			const distractor = mode === 'recognition' 
 				? (data.definition || 'Unknown')
 				: char;
@@ -196,7 +278,27 @@
 				distractors.push(distractor);
 				usedAnswers.add(distractor);
 			}
-			allChars.splice(randomIndex, 1);
+			charPool.splice(randomIndex, 1);
+		}
+		
+		// Fallback: if not enough distractors from grade, use all characters
+		if (distractors.length < 3) {
+			charPool = Object.entries(allData.characters).filter(
+				([char]) => !usedAnswers.has(char)
+			);
+			while (distractors.length < 3 && charPool.length > 0) {
+				const randomIndex = Math.floor(Math.random() * charPool.length);
+				const [char, data] = charPool[randomIndex];
+				const distractor = mode === 'recognition' 
+					? (data.definition || 'Unknown')
+					: char;
+				
+				if (!usedAnswers.has(distractor) && distractor !== 'Unknown') {
+					distractors.push(distractor);
+					usedAnswers.add(distractor);
+				}
+				charPool.splice(randomIndex, 1);
+			}
 		}
 
 		// Shuffle options
@@ -228,7 +330,7 @@
 		// Grade the answer using automatic grading
 		const result = await gradeAnswer({
 			answerMode: 'multiple_choice',
-			questionType: $quizConfig.mode,
+			questionType: $quizConfig.mode === 'pronunciation' ? 'recognition' : $quizConfig.mode,
 			correctAnswer: cardData?.pinyin || '',
 			userAnswer: isCorrect ? (cardData?.pinyin || '') : 'wrong',
 			responseTimeMs,
@@ -236,11 +338,9 @@
 		});
 		lastGradingResult = result;
 		
-		// Auto-submit using grading result after a delay
-		setTimeout(() => {
-			quizSession.submitWithQuality(result.sm2Quality, isCorrect);
-			loadCardData();
-		}, 1500);
+		// Wait for user to click Continue
+		stopTimer();
+		pendingContinue = { quality: result.sm2Quality, wasCorrect: isCorrect };
 	}
 	
 	async function skipChoice() {
@@ -253,7 +353,7 @@
 		// Grade as skipped
 		const result = await gradeAnswer({
 			answerMode: 'multiple_choice',
-			questionType: $quizConfig.mode,
+			questionType: $quizConfig.mode === 'pronunciation' ? 'recognition' : $quizConfig.mode,
 			correctAnswer: cardData?.pinyin || '',
 			userAnswer: null, // null = "I don't know"
 			responseTimeMs,
@@ -261,11 +361,20 @@
 		});
 		lastGradingResult = result;
 		
-		// Auto-submit as failure after a delay
-		setTimeout(() => {
-			quizSession.submitWithQuality(result.sm2Quality, false);
-			loadCardData();
-		}, 1500);
+		// Wait for user to click Continue
+		stopTimer();
+		pendingContinue = { quality: result.sm2Quality, wasCorrect: false };
+	}
+
+	function skipTyping() {
+		// "I don't know" - treat as failure for typing mode
+		typingSubmitted = true;
+		typingCorrect = false;
+		toneCorrect = false;
+		
+		// Wait for user to click Continue
+		stopTimer();
+		pendingContinue = { quality: 0, wasCorrect: false };
 	}
 
 	// Pinyin tone marker to number mapping
@@ -330,30 +439,78 @@
 		typingSubmitted = true;
 		
 		const mode = $quizConfig.mode;
-		const correctPinyin = cardData.pinyin || '';
-		const correctAnswer = mode === 'recognition'
-			? normalizePinyin(correctPinyin)
-			: ($currentCard?.item.id || '');
 		
-		const userAnswer = mode === 'recognition'
-			? normalizePinyin(typingAnswer)
-			: typingAnswer.trim();
+		// Determine what the correct answer should be based on mode:
+		// - recognition: meaning/definition (user sees character, guesses meaning)
+		// - recall: character (user sees meaning, guesses character)
+		// - pronunciation: pinyin base + tone (user sees char+meaning, guesses pinyin)
+		let correctAnswer: string;
+		let userAnswer: string;
 		
-		// Check for match
-		if (mode === 'recognition') {
-			// For pinyin: check exact match or match without tones
-			const correctNoTone = correctAnswer.replace(/[1-5]/g, '');
-			const userNoTone = userAnswer.replace(/[1-5]/g, '');
-			typingCorrect = correctAnswer === userAnswer || correctNoTone === userNoTone;
+		if (mode === 'pronunciation') {
+			// Pronunciation mode: validate pinyin base + selected tone
+			const correctPinyin = cardData.pinyin || '';
+			const normalizedCorrect = normalizePinyin(correctPinyin);
+			
+			// Extract correct tone number (last digit or 5 for neutral)
+			const correctToneMatch = normalizedCorrect.match(/[1-5]$/);
+			const correctTone = correctToneMatch ? parseInt(correctToneMatch[0]) : 5;
+			const correctBase = normalizedCorrect.replace(/[1-5]/g, '');
+			
+			// User input: pinyin base from text field + selected tone from buttons
+			const userBase = normalizePinyin(typingAnswer).replace(/[1-5]/g, '');
+			const userTone = selectedTone ?? 5;
+			
+			// Check if pinyin base is correct
+			typingCorrect = userBase === correctBase;
+			
+			// Check if tone is correct
+			toneCorrect = userTone === correctTone;
+			
+			// Quality scoring:
+			// - Both correct: quality 4 (good)
+			// - Pinyin correct, tone wrong: quality 2 (partial - penalized)
+			// - Pinyin wrong: quality 0 (fail)
+			let quality = 0;
+			if (typingCorrect && toneCorrect) {
+				quality = 4;
+			} else if (typingCorrect && !toneCorrect) {
+				quality = 2; // Penalized for wrong tone
+			}
+			
+			// Overall correctness: both must be right for full credit
+			const fullyCorrect = typingCorrect && toneCorrect;
+			
+			stopTimer();
+			pendingContinue = { quality, wasCorrect: fullyCorrect };
+			return;
+		} else if (mode === 'recognition') {
+			// Recognition mode: compare meaning/definition (case-insensitive partial match)
+			const correctDef = (cardData.definition || '').toLowerCase().trim();
+			userAnswer = typingAnswer.toLowerCase().trim();
+			
+			// Accept if user's answer is contained in the correct definition
+			// or if the correct definition contains the user's answer
+			typingCorrect = correctDef.includes(userAnswer) || 
+				userAnswer.includes(correctDef) ||
+				correctDef === userAnswer;
 		} else {
-			// For character recall: exact match
+			// Recall mode: exact character match
+			correctAnswer = $currentCard?.item.id || '';
+			userAnswer = typingAnswer.trim();
 			typingCorrect = userAnswer === correctAnswer;
 		}
 		
-		// Auto-submit rating after delay
-		setTimeout(() => {
-			submitRating(typingCorrect ? 'good' : 'again');
-		}, 1500);
+		// Wait for user to click Continue
+		stopTimer();
+		pendingContinue = { quality: typingCorrect ? 4 : 0, wasCorrect: typingCorrect };
+	}
+
+	function continueToNext() {
+		if (!pendingContinue) return;
+		quizSession.submitWithQuality(pendingContinue.quality as 0 | 1 | 2 | 3 | 4 | 5, pendingContinue.wasCorrect);
+		pendingContinue = null;
+		loadCardData();
 	}
 
 	function setSourceType(type: 'study_list' | 'grade' | 'frequency') {
@@ -401,6 +558,7 @@
 	}
 
 	function submitRating(rating: 'again' | 'hard' | 'good' | 'easy') {
+		stopTimer();
 		quizSession.submitRating(rating);
 		loadCardData();
 	}
@@ -573,7 +731,7 @@
 				<div class="config-section">
 					<h2>Answer Method</h2>
 					<div class="mode-options">
-						{#each answerModes as answerMode}
+						{#each filteredAnswerModes as answerMode}
 							<button
 								class="mode-btn"
 								class:active={$quizConfig.answerMode === answerMode.value}
@@ -663,16 +821,68 @@
 					Back to Browse
 				</button>
 			</div>
+
+			<!-- Results Review Section -->
+			{#if $quizSession.results.length > 0}
+				<div class="results-review">
+					<h2>Review Your Answers</h2>
+					<div class="results-list">
+						{#each $quizSession.results as result}
+							{@const charData = allData?.characters[result.item.id]}
+							{@const inStudyList = $isInStudyList(result.item.type, result.item.id)}
+							<div class="review-item" class:correct={result.wasCorrect} class:incorrect={!result.wasCorrect}>
+								<div class="review-status">
+									{#if result.wasCorrect}
+										<span class="status-icon correct">✓</span>
+									{:else}
+										<span class="status-icon incorrect">✗</span>
+									{/if}
+								</div>
+								<div class="review-character">{result.item.id}</div>
+								<div class="review-details">
+									<span class="review-pinyin">{charData?.pinyin || '—'}</span>
+									<span class="review-definition">{charData?.definition || 'No definition'}</span>
+								</div>
+								<div class="review-rating">
+									<span class="rating-badge {result.rating}">{result.rating}</span>
+								</div>
+								<div class="review-actions">
+									{#if inStudyList}
+										<button class="add-btn added" disabled title="Already in Study List">
+											✓ In List
+										</button>
+									{:else}
+										<button 
+											class="add-btn" 
+											on:click={() => studyList.addItem(result.item.type, result.item.id)}
+											title="Add to Study List"
+										>
+											+ Add
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 	{:else}
 		<!-- Quiz Card Screen -->
 		<div class="quiz-screen">
-			<!-- Progress Bar -->
 			<div class="progress-bar">
 				<div class="progress-fill" style="width: {$sessionProgress.percentage}%"></div>
 			</div>
-			<div class="progress-text">
-				{$sessionProgress.current + 1} / {$sessionProgress.total}
+			<div class="progress-info">
+				<div class="progress-text">
+					{$sessionProgress.current + 1} / {$sessionProgress.total}
+				</div>
+				{#if !$quizSession.isRevealed && !choiceSubmitted && !typingSubmitted}
+					<div class="response-timer {getTimerColor(elapsedTime)}">
+						<span class="timer-icon">⏱</span>
+						<span class="timer-value">{formatTimer(elapsedTime)}</span>
+					</div>
+				{/if}
 			</div>
 
 			{#if $currentCard && cardData}
@@ -684,6 +894,12 @@
 								<span class="big-character">{$currentCard.item.id}</span>
 							</div>
 							<p class="card-hint">What does this mean?</p>
+						{:else if $quizConfig.mode === 'pronunciation'}
+							<div class="card-question">
+								<span class="big-character">{$currentCard.item.id}</span>
+								<span class="card-definition">{cardData.definition || 'No definition'}</span>
+							</div>
+							<p class="card-hint">What is the pinyin?</p>
 						{:else}
 							<div class="card-question">
 								<span class="card-pinyin">{cardData.pinyin || '—'}</span>
@@ -727,16 +943,50 @@
 								<div class="typing-input">
 									<input
 										type="text"
-										placeholder={$quizConfig.mode === 'recognition' ? 'Type pinyin...' : 'Type character...'}
+										placeholder={$quizConfig.mode === 'recognition' ? 'Type meaning...' : $quizConfig.mode === 'pronunciation' ? 'Type pinyin (e.g., shui)...' : 'Type character...'}
 										bind:value={typingAnswer}
-										on:keypress={(e) => e.key === 'Enter' && checkTypingAnswer()}
+										on:keypress={(e) => e.key === 'Enter' && ($quizConfig.mode !== 'pronunciation' || selectedTone !== null) && checkTypingAnswer()}
 									/>
+									
+									{#if $quizConfig.mode === 'pronunciation'}
+										<!-- Tone selection buttons -->
+										<div class="tone-selector">
+											<span class="tone-label">Tone:</span>
+											<div class="tone-buttons">
+												{#each [
+													{ num: 1, marker: 'ˉ', name: '1st (flat)' },
+													{ num: 2, marker: 'ˊ', name: '2nd (rising)' },
+													{ num: 3, marker: 'ˇ', name: '3rd (dip)' },
+													{ num: 4, marker: 'ˋ', name: '4th (falling)' },
+													{ num: 5, marker: '·', name: '5th (neutral)' }
+												] as tone}
+													<button 
+														class="tone-btn" 
+														class:selected={selectedTone === tone.num}
+														on:click={() => selectedTone = tone.num}
+														title={tone.name}
+													>
+														<span class="tone-marker">{tone.marker}</span>
+														<span class="tone-number">{tone.num}</span>
+													</button>
+												{/each}
+											</div>
+										</div>
+									{/if}
+									
 									<button 
 										class="btn btn-primary btn-submit" 
 										on:click={checkTypingAnswer}
-										disabled={!typingAnswer.trim()}
+										disabled={!typingAnswer.trim() || ($quizConfig.mode === 'pronunciation' && selectedTone === null)}
 									>
 										Check
+									</button>
+									
+									<button 
+										class="btn btn-skip" 
+										on:click={skipTyping}
+									>
+										I don't know
 									</button>
 								</div>
 							{/if}
@@ -747,13 +997,25 @@
 							<div class="answer-feedback" class:correct={selectedChoice !== null && choiceOptions[selectedChoice]?.isCorrect} class:incorrect={selectedChoice !== null && !choiceOptions[selectedChoice]?.isCorrect} class:skipped={selectedChoice === null}>
 								{#if selectedChoice === null}
 									<span class="feedback-icon">⏭</span>
-									<span>Skipped. The answer is: {choiceOptions.find(o => o.isCorrect)?.text}</span>
+									<span>Skipped</span>
 								{:else if choiceOptions[selectedChoice]?.isCorrect}
 									<span class="feedback-icon">✓</span>
 									<span>Correct!</span>
 								{:else}
 									<span class="feedback-icon">✗</span>
-									<span>Incorrect. The answer is: {choiceOptions.find(o => o.isCorrect)?.text}</span>
+									<span>Incorrect</span>
+								{/if}
+							</div>
+							
+							<!-- Show the correct answer prominently -->
+							<div class="answer-reveal">
+								<div class="answer-label">Answer</div>
+								<div class="answer-character">{choiceOptions.find(o => o.isCorrect)?.text}</div>
+								{#if $quizConfig.mode === 'recall'}
+									<div class="answer-details">
+										<span class="answer-pinyin">{cardData?.pinyin}</span>
+										<span class="answer-definition">{cardData?.definition}</span>
+									</div>
 								{/if}
 							</div>
 							
@@ -780,19 +1042,69 @@
 									</div>
 								</div>
 							{/if}
+
+							<!-- Continue button -->
+							{#if pendingContinue}
+								<button class="btn btn-continue" on:click={continueToNext}>
+									Continue →
+								</button>
+							{/if}
 						{/if}
 
 						<!-- Typing result feedback -->
 						{#if typingSubmitted && !$quizSession.isRevealed}
-							<div class="answer-feedback" class:correct={typingCorrect} class:incorrect={!typingCorrect}>
-								{#if typingCorrect}
+							<div class="answer-feedback" 
+								class:correct={typingCorrect && ($quizConfig.mode !== 'pronunciation' || toneCorrect)} 
+								class:partial={$quizConfig.mode === 'pronunciation' && typingCorrect && !toneCorrect}
+								class:incorrect={!typingCorrect}
+							>
+								{#if $quizConfig.mode === 'pronunciation'}
+									{#if typingCorrect && toneCorrect}
+										<span class="feedback-icon">✓</span>
+										<span>Correct!</span>
+									{:else if typingCorrect && !toneCorrect}
+										<span class="feedback-icon">~</span>
+										<span>Pinyin correct, but wrong tone</span>
+									{:else}
+										<span class="feedback-icon">✗</span>
+										<span>Incorrect</span>
+									{/if}
+								{:else if typingCorrect}
 									<span class="feedback-icon">✓</span>
 									<span>Correct!</span>
 								{:else}
 									<span class="feedback-icon">✗</span>
-									<span>Incorrect. Answer: {$quizConfig.mode === 'recognition' ? cardData.pinyin : $currentCard.item.id}</span>
+									<span>Incorrect</span>
 								{/if}
 							</div>
+							
+							<!-- Show the correct answer prominently for typing mode -->
+							<div class="answer-reveal">
+								<div class="answer-label">Answer</div>
+								{#if $quizConfig.mode === 'recall'}
+									<!-- Recall: show character + pinyin -->
+									<div class="answer-character">{$currentCard.item.id}</div>
+									<div class="answer-details">
+										<span class="answer-pinyin">{cardData?.pinyin}</span>
+									</div>
+								{:else if $quizConfig.mode === 'recognition'}
+									<!-- Recognition: show definition (that's what user typed) -->
+									<div class="answer-character" style="font-size: 1.25rem;">{cardData?.definition}</div>
+									<div class="answer-details">
+										<span class="answer-pinyin">{cardData?.pinyin}</span>
+									</div>
+								{:else}
+									<!-- Pronunciation: show pinyin (that's what user typed) -->
+									<div class="answer-character">{cardData?.pinyin}</div>
+								{/if}
+							</div>
+
+							<!-- Continue button -->
+							{#if pendingContinue}
+								<button class="btn btn-continue" on:click={continueToNext}>
+									Continue →
+								</button>
+							{/if}
 						{/if}
 					</div>
 
@@ -1158,10 +1470,62 @@
 		transition: width 0.3s ease;
 	}
 
+	.progress-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1.5rem;
+	}
+
 	.progress-text {
 		font-size: 0.875rem;
 		color: #6b7280;
-		margin-bottom: 2rem;
+	}
+
+	.response-timer {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.375rem 0.75rem;
+		border-radius: 1rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		transition: all 0.3s ease;
+	}
+
+	.timer-icon {
+		font-size: 1rem;
+	}
+
+	.timer-value {
+		font-variant-numeric: tabular-nums;
+		min-width: 2.5rem;
+	}
+
+	.timer-green {
+		background: #dcfce7;
+		color: #16a34a;
+	}
+
+	.timer-yellow {
+		background: #fef3c7;
+		color: #d97706;
+	}
+
+	.timer-orange {
+		background: #ffedd5;
+		color: #ea580c;
+	}
+
+	.timer-red {
+		background: #fee2e2;
+		color: #dc2626;
+		animation: pulse 0.5s ease-in-out infinite alternate;
+	}
+
+	@keyframes pulse {
+		from { transform: scale(1); }
+		to { transform: scale(1.05); }
 	}
 
 	.card {
@@ -1219,6 +1583,24 @@
 	.btn-reveal:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+	}
+
+	.btn-continue {
+		background: linear-gradient(135deg, #22c55e, #16a34a);
+		color: white;
+		padding: 0.875rem 2.5rem;
+		font-size: 1.125rem;
+		margin-top: 1rem;
+		border: none;
+		border-radius: 0.75rem;
+		cursor: pointer;
+		font-weight: 600;
+		transition: all 0.2s ease;
+	}
+
+	.btn-continue:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
 	}
 
 	.card-back {
@@ -1402,11 +1784,11 @@
 		background: white;
 		border: 2px solid #e5e7eb;
 		border-radius: 0.75rem;
-		font-size: 0.95rem;
+		font-size: 2rem;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		text-align: left;
-		min-height: 60px;
+		text-align: center;
+		min-height: 80px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1492,6 +1874,66 @@
 		padding: 0.875rem 2rem;
 	}
 
+	/* Tone Selector Styles */
+	.tone-selector {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0.5rem 0;
+	}
+
+	.tone-label {
+		font-size: 0.9rem;
+		color: #64748b;
+		font-weight: 500;
+	}
+
+	.tone-buttons {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.tone-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 52px;
+		border: 2px solid #e5e7eb;
+		border-radius: 0.5rem;
+		background: #fff;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.tone-btn:hover {
+		border-color: #a5b4fc;
+		background: #f5f3ff;
+	}
+
+	.tone-btn.selected {
+		border-color: #4f46e5;
+		background: #eef2ff;
+	}
+
+	.tone-marker {
+		font-size: 1.25rem;
+		line-height: 1;
+		color: #4f46e5;
+	}
+
+	.tone-number {
+		font-size: 0.75rem;
+		color: #64748b;
+	}
+
+	.tone-btn.selected .tone-number {
+		color: #4f46e5;
+		font-weight: 600;
+	}
+
 	/* Answer Feedback Styles */
 	.answer-feedback {
 		display: flex;
@@ -1523,6 +1965,51 @@
 	.answer-feedback.skipped {
 		background: #fef3c7;
 		color: #92400e;
+	}
+
+	.answer-feedback.partial {
+		background: #fff7ed;
+		color: #c2410c;
+	}
+
+	.answer-reveal {
+		text-align: center;
+		margin-top: 1rem;
+		padding: 1rem;
+		background: #f0f9ff;
+		border-radius: 0.75rem;
+		border: 1px solid #bae6fd;
+	}
+
+	.answer-label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #64748b;
+		margin-bottom: 0.25rem;
+	}
+
+	.answer-character {
+		font-size: 2.5rem;
+		font-weight: 600;
+		color: #0369a1;
+	}
+
+	.answer-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		margin-top: 0.5rem;
+	}
+
+	.answer-pinyin {
+		font-size: 1rem;
+		color: #4f46e5;
+	}
+
+	.answer-definition {
+		font-size: 0.9rem;
+		color: #64748b;
 	}
 
 	.score-breakdown {
@@ -1588,5 +2075,173 @@
 		.big-character {
 			font-size: 4rem;
 		}
+
+		.review-item {
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+
+		.review-details {
+			width: 100%;
+			order: 10;
+		}
+	}
+
+	/* Results Review Section */
+	.results-review {
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.results-review h2 {
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: #374151;
+		margin-bottom: 1rem;
+		text-align: left;
+	}
+
+	.results-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.review-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: #f9fafb;
+		border-radius: 0.5rem;
+		border-left: 3px solid transparent;
+		transition: all 0.2s ease;
+	}
+
+	.review-item.correct {
+		border-left-color: #22c55e;
+		background: #f0fdf4;
+	}
+
+	.review-item.incorrect {
+		border-left-color: #ef4444;
+		background: #fef2f2;
+	}
+
+	.review-status {
+		flex-shrink: 0;
+	}
+
+	.status-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		font-weight: bold;
+		font-size: 0.875rem;
+	}
+
+	.status-icon.correct {
+		background: #22c55e;
+		color: white;
+	}
+
+	.status-icon.incorrect {
+		background: #ef4444;
+		color: white;
+	}
+
+	.review-character {
+		font-size: 1.5rem;
+		font-weight: 600;
+		min-width: 2.5rem;
+		text-align: center;
+		flex-shrink: 0;
+		color: #1f2937;
+	}
+
+	.review-details {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.review-pinyin {
+		font-size: 0.875rem;
+		color: #6b7280;
+	}
+
+	.review-definition {
+		font-size: 0.75rem;
+		color: #9ca3af;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.review-rating {
+		flex-shrink: 0;
+	}
+
+	.review-rating .rating-badge {
+		display: inline-block;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.25rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: capitalize;
+	}
+
+	.review-rating .rating-badge.again {
+		background: #fee2e2;
+		color: #dc2626;
+	}
+
+	.review-rating .rating-badge.hard {
+		background: #fef3c7;
+		color: #d97706;
+	}
+
+	.review-rating .rating-badge.good {
+		background: #dcfce7;
+		color: #16a34a;
+	}
+
+	.review-rating .rating-badge.easy {
+		background: #d1fae5;
+		color: #059669;
+	}
+
+	.review-actions {
+		flex-shrink: 0;
+	}
+
+	.add-btn {
+		padding: 0.375rem 0.75rem;
+		border: 1px solid #8b5cf6;
+		background: white;
+		color: #8b5cf6;
+		border-radius: 0.375rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.add-btn:hover:not(:disabled) {
+		background: #8b5cf6;
+		color: white;
+	}
+
+	.add-btn.added {
+		background: #f3f4f6;
+		border-color: #d1d5db;
+		color: #9ca3af;
+		cursor: default;
 	}
 </style>
