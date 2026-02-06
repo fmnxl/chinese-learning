@@ -200,4 +200,77 @@ describe('Quiz System', () => {
 			expect(stats.newLearned).toBe(0);
 		});
 	});
+
+	describe('quiz results tracking', () => {
+		beforeEach(() => {
+			quizSession.reset();
+		});
+
+		it('should record result after submitWithQuality', () => {
+			quizSession.startWithItems(['一'], get(quizConfig));
+
+			quizSession.submitWithQuality(4, true);
+
+			const session = get(quizSession);
+			expect(session.results.length).toBe(1);
+			expect(session.results[0].item.id).toBe('一');
+		});
+
+		it('should record wasCorrect=true for quality >= 3', () => {
+			quizSession.startWithItems(['一', '二'], { ...get(quizConfig), deckSize: 2 });
+
+			quizSession.submitWithQuality(4, true);
+			quizSession.submitWithQuality(5, true);
+
+			const session = get(quizSession);
+			expect(session.results[0].wasCorrect).toBe(true);
+			expect(session.results[1].wasCorrect).toBe(true);
+		});
+
+		it('should record wasCorrect=false for quality < 3', () => {
+			quizSession.startWithItems(['一', '二'], { ...get(quizConfig), deckSize: 2 });
+
+			quizSession.submitWithQuality(0, false);
+			quizSession.submitWithQuality(2, false);
+
+			const session = get(quizSession);
+			expect(session.results[0].wasCorrect).toBe(false);
+			expect(session.results[1].wasCorrect).toBe(false);
+		});
+
+		it('should preserve item type and id in results', () => {
+			quizSession.startWithItems(['一'], get(quizConfig));
+
+			quizSession.submitWithQuality(4, true);
+
+			const session = get(quizSession);
+			expect(session.results[0].item.type).toBe('character');
+			expect(session.results[0].item.id).toBe('一');
+		});
+
+		it('should accumulate results across session', () => {
+			quizSession.startWithItems(['一', '二', '三'], { ...get(quizConfig), deckSize: 3 });
+
+			quizSession.submitWithQuality(4, true);
+			quizSession.submitWithQuality(0, false);
+			quizSession.submitWithQuality(5, true);
+
+			const session = get(quizSession);
+			expect(session.results.length).toBe(3);
+			expect(session.isComplete).toBe(true);
+		});
+
+		it('should update sessionStats after submissions', () => {
+			quizSession.startWithItems(['一', '二', '三'], { ...get(quizConfig), deckSize: 3 });
+
+			quizSession.submitWithQuality(4, true);
+			quizSession.submitWithQuality(0, false);
+			quizSession.submitWithQuality(5, true);
+
+			const stats = get(sessionStats);
+			expect(stats.totalReviewed).toBe(3);
+			expect(stats.correct).toBe(2);
+			expect(stats.incorrect).toBe(1);
+		});
+	});
 });
