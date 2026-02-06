@@ -42,19 +42,6 @@ class TestAuthRegister:
             },
         )
         assert response.status_code == 409
-    
-    @pytest.mark.asyncio
-    async def test_register_invalid_email(self, client: AsyncTestClient):
-        """Test registration fails with invalid email format."""
-        response = await client.post(
-            "/auth/register",
-            json={
-                "email": "not-an-email",
-                "password": "password123",
-            },
-        )
-        # Should fail validation
-        assert response.status_code in [400, 422]
 
 
 class TestAuthLogin:

@@ -1,7 +1,6 @@
 """Pytest configuration and fixtures."""
 import asyncio
 from collections.abc import AsyncGenerator
-from typing import Any
 
 import pytest
 from litestar import Litestar
@@ -53,7 +52,7 @@ async def test_app() -> Litestar:
     from litestar import Litestar
     from litestar.config.cors import CORSConfig
     
-    from app.controllers.auth import AuthController
+    from app.controllers.auth import AuthController, jwt_auth
     from app.controllers.courses import CourseController
     from app.controllers.progress import ProgressController
     from app.controllers.payments import PaymentController
@@ -84,6 +83,7 @@ async def test_app() -> Litestar:
         ],
         plugins=[SQLAlchemyPlugin(config=sqlalchemy_config)],
         cors_config=cors_config,
+        on_app_init=[jwt_auth.on_app_init],
         on_startup=[create_tables],
         debug=True,
     )

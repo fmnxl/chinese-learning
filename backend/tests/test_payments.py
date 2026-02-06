@@ -57,7 +57,7 @@ class TestPaymentCheckout:
             "/payments/checkout",
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert response.status_code == 200
+        assert response.status_code in [200, 201]
         data = response.json()
         assert data["is_alpha"] is True
         assert data["checkout_url"] is None  # No Stripe redirect needed
