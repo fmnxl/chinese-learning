@@ -105,6 +105,19 @@ npm run dev -- --port 8080
 
 Visit `http://localhost:8080` to explore.
 
+### Backend API
+
+```bash
+# Backend dev shell
+nix develop .#backend
+
+# Start backend (SQLite locally)
+cd backend
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8100
+```
+
+See `backend/README.md` for API documentation.
+
 ### Rebuilding the Dataset
 
 If you need to regenerate `radicals.json` from source data:
