@@ -14,23 +14,20 @@
         sourcePreference = "wheel";
       };
 
-      editableOverlay = workspace.mkEditablePyprojectOverlay {
-        root = "$REPO_ROOT";
-      };
-
       python = pkgsMain.python312;
 
       pythonSet =
         (pkgsMain.callPackage pyproject-nix.build.packages {
           inherit python;
         }).overrideScope (
-          pkgs.lib.composeManyExtensions [
+          pkgsMain.lib.composeManyExtensions [
             pyproject-build-systems.overlays.default
             overlay
           ]
         );
 
-      virtualenv = (pythonSet.overrideScope editableOverlay).mkVirtualEnv "chinese-backend-dev-env" workspace.deps.all;
+      # Use standard (non-editable) virtualenv for dev
+      virtualenv = pythonSet.mkVirtualEnv "chinese-backend-dev-env" workspace.deps.all;
 
       uvDevShell = pkgsMain.mkShell {
         packages = [
@@ -45,7 +42,10 @@
         };
         shellHook = ''
           unset PYTHONPATH
-          export REPO_ROOT=$(git rev-parse --show-toplevel)
+          export PYTHONPATH="${./.}:$PYTHONPATH"
+          echo "🐍 Chinese Backend Dev Environment"
+          echo "Python $(python --version)"
+          echo "Run 'uvicorn app.main:app --reload --host 127.0.0.1 --port 8100'"
         '';
       };
 
