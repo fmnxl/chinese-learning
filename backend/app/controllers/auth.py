@@ -8,7 +8,7 @@ from litestar import Controller, post, get
 from litestar.connection import ASGIConnection
 from litestar.exceptions import HTTPException
 from litestar.security.jwt import JWTAuth, Token
-from passlib.hash import bcrypt
+import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,7 +94,7 @@ class AuthController(Controller):
         # Create user with hashed password
         user = User(
             email=data.email,
-            hashed_password=bcrypt.hash(data.password),
+            hashed_password=bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
         )
         db_session.add(user)
         await db_session.flush()
@@ -118,7 +118,7 @@ class AuthController(Controller):
         )
         user = result.scalar_one_or_none()
         
-        if not user or not bcrypt.verify(data.password, user.hashed_password):
+        if not user or not bcrypt.checkpw(data.password.encode('utf-8'), user.hashed_password.encode('utf-8')):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         if not user.is_active:
