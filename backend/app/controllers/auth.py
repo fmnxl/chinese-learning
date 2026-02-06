@@ -11,6 +11,7 @@ from litestar.security.jwt import JWTAuth, Token
 import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
 
 if TYPE_CHECKING:
     from litestar import Request
@@ -42,6 +43,14 @@ class UserResponseDTO:
 
 
 @dataclass
+class AuthResponseDTO:
+    access_token: str
+    email: str
+    is_premium: bool
+    token_type: str = "bearer"
+
+
+@dataclass
 class TokenResponseDTO:
     access_token: str
     token_type: str = "bearer"
@@ -49,19 +58,22 @@ class TokenResponseDTO:
 
 async def retrieve_user_handler(token: Token, connection: ASGIConnection) -> User | None:
     """Retrieve user from JWT token."""
-    session: AsyncSession = connection.app.state.get("db_session")
-    if session is None:
-        # Get session from dependency
-        async with connection.app.state.engine.begin() as conn:
-            result = await conn.execute(
-                select(User).where(User.id == UUID(token.sub))
-            )
-            return result.scalar_one_or_none()
+    from advanced_alchemy.extensions.litestar import SQLAlchemyPlugin
     
-    result = await session.execute(
-        select(User).where(User.id == UUID(token.sub))
-    )
-    return result.scalar_one_or_none()
+    # Get SQLAlchemy engine from the plugin and create a proper ORM session
+    for plugin in connection.app.plugins:
+        if isinstance(plugin, SQLAlchemyPlugin):
+            configs = plugin._config if isinstance(plugin._config, list) else [plugin._config]
+            for config in configs:
+                engine = config.get_engine()
+                async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                async with async_session() as session:
+                    result = await session.execute(
+                        select(User).where(User.id == UUID(token.sub))
+                    )
+                    return result.scalar_one_or_none()
+    
+    return None
 
 
 jwt_auth = JWTAuth[User](
@@ -77,19 +89,19 @@ class AuthController(Controller):
     
     path = "/auth"
     
-    @post("/register")
+    @post("/register", status_code=201)
     async def register(
         self, 
         data: UserRegisterDTO, 
         db_session: AsyncSession
-    ) -> UserResponseDTO:
-        """Register a new user account."""
+    ) -> AuthResponseDTO:
+        """Register a new user account and return JWT token."""
         # Check if email already exists
         result = await db_session.execute(
             select(User).where(User.email == data.email)
         )
         if result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=409, detail="Email already registered")
         
         # Create user with hashed password
         user = User(
@@ -99,14 +111,16 @@ class AuthController(Controller):
         db_session.add(user)
         await db_session.flush()
         
-        return UserResponseDTO(
-            id=user.id,
+        # Create JWT token
+        token = jwt_auth.create_token(identifier=str(user.id))
+        
+        return AuthResponseDTO(
+            access_token=token,
             email=user.email,
             is_premium=user.is_premium,
-            created_at=user.created_at,
         )
     
-    @post("/login")
+    @post("/login", status_code=200)
     async def login(
         self, 
         data: UserLoginDTO, 
