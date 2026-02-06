@@ -15,6 +15,7 @@ from app.controllers.auth import AuthController
 from app.controllers.courses import CourseController
 from app.controllers.progress import ProgressController
 from app.controllers.payments import PaymentController
+from app.controllers.lessons import LessonController
 
 settings = get_settings()
 
@@ -50,6 +51,7 @@ def create_app() -> Litestar:
             CourseController,
             ProgressController,
             PaymentController,
+            LessonController,
         ],
         plugins=[SQLAlchemyPlugin(config=sqlalchemy_config)],
         lifespan=[db_lifespan],
