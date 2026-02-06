@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { Character } from '$lib/data/loader';
+import type { Character, Word } from '$lib/data/loader';
 
 export interface ChatMessage {
 	role: 'user' | 'assistant' | 'system';
@@ -43,6 +43,17 @@ export function openChat(char: string, charData: Character) {
 	chatOpen.set(true);
 }
 
+export function openWordChat(wordStr: string, wordData: Word) {
+	chatContext.set({
+		char: wordStr,
+		pinyin: wordData.pinyin,
+		definition: wordData.definition,
+		gradeLevel: wordData.gradeLevel
+	});
+	chatMessages.set([]);
+	chatOpen.set(true);
+}
+
 export function closeChat() {
 	chatOpen.set(false);
 	isStreaming.set(false);
@@ -61,6 +72,16 @@ export function setApiKey(key: string) {
 }
 
 export function buildContextMessage(ctx: ChatContext): string {
+	// Detect if this is a word (multi-char) or single character
+	const isWord = ctx.char.length > 1;
+	
+	if (isWord) {
+		return `Word: ${ctx.char}
+Pinyin: ${ctx.pinyin || 'Unknown'}
+Definition: ${ctx.definition || 'Unknown'}
+HSK Level: ${ctx.gradeLevel || 'Unknown'}`;
+	}
+	
 	return `Character: ${ctx.char}
 Pinyin: ${ctx.pinyin || 'Unknown'}
 Definition: ${ctx.definition || 'Unknown'}
@@ -74,14 +95,20 @@ Simplified form: ${ctx.simplified || 'Same'}
 Example words: ${(ctx.words || []).slice(0, 5).join(', ') || 'None'}`;
 }
 
-export const SYSTEM_PROMPT = `You are a Chinese language tutor specializing in character etymology and composition.
+export const SYSTEM_PROMPT = `You are a Chinese language tutor specializing in character etymology, vocabulary, and composition.
 
-Given character data, provide helpful explanations about:
+For single characters, provide helpful explanations about:
 - Etymology and historical evolution of the character
 - The meaning and role of each component (semantic vs phonetic)
 - Mnemonics to help remember the character
 - Example words and usage contexts
-- Cultural context when relevant
+
+For words/vocabulary, provide helpful explanations about:
+- The meaning and nuance of the word
+- How the component characters contribute to the word's meaning
+- Example sentences showing natural usage
+- Related words or synonyms
+- Common collocations and patterns
 
 Use simple language suitable for learners. Include pinyin for any Chinese characters you mention.
 Be concise but thorough. Use markdown formatting for clarity.`;
