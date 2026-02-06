@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { loadData, type Word, type Character } from '$lib/data/loader';
+	import { pairCharsWithPinyin, numberedToToneMarked } from '$lib/utils/pinyin';
 	import AddToStudyList from '$lib/components/AddToStudyList.svelte';
+	import { openWordChat } from '$lib/stores/chat';
 	
 	let word: (Word & { wordStr: string }) | null = null;
 	let characters: (Character & { char: string })[] = [];
@@ -43,20 +45,36 @@
 {#if loading}
 	<div class="loading">Loading word</div>
 {:else if word}
-	<div class="word-hero">
-		<div class="word-chars">{word.wordStr}</div>
-		<div class="word-pinyin">{word.pinyin || '—'}</div>
-		<div class="word-definition">{word.definition || 'No definition available'}</div>
-			<div class="word-meta">
-			{#if word.gradeLevel && word.gradeLevel > 0}
-				<span class="grade-badge grade-{word.gradeLevel}">HSK {word.gradeLevel}</span>
-			{/if}
-			{#if word.frequency}
-				<span class="frequency-badge" class:common={word.frequency <= 1000}>
-					#{word.frequency} most common
-				</span>
-			{/if}
-			<AddToStudyList type="word" id={word.wordStr} />
+	<div class="character-hero compact word-hero">
+		<div class="hero-chars">
+			<div class="hero-char primary">{word.wordStr}</div>
+		</div>
+		<div class="hero-content">
+			<div class="hero-header">
+				<span class="pinyin">{numberedToToneMarked(word.pinyin || '') || '—'}</span>
+				<div class="hero-badges">
+					{#if word.gradeLevel && word.gradeLevel > 0}
+						<span class="grade-badge grade-{word.gradeLevel}">HSK {word.gradeLevel}</span>
+					{/if}
+					{#if word.frequency}
+						<span class="freq-badge">#{word.frequency}</span>
+					{/if}
+				</div>
+			</div>
+			<div class="definition">{word.definition || 'No definition available'}</div>
+			<div class="hero-links">
+				<a href="https://en.wiktionary.org/wiki/{encodeURIComponent(word.wordStr)}" 
+				   class="meta-link external" 
+				   target="_blank" 
+				   rel="noopener noreferrer">
+					<span>📖</span>
+					<span>Wiktionary</span>
+				</a>
+				<button class="ask-ai-btn" on:click={() => openWordChat(word!.wordStr, word!)}>
+					🤖 Ask AI
+				</button>
+				<AddToStudyList type="word" id={word.wordStr} compact />
+			</div>
 		</div>
 	</div>
 	
@@ -79,3 +97,4 @@
 {:else}
 	<div class="loading">Word not found</div>
 {/if}
+
