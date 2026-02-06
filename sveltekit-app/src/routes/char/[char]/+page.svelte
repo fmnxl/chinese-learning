@@ -15,9 +15,15 @@
 	let loading = true;
 	let appearsInSort = 'frequency';
 	let wordsSort = 'grade';
+	let currentWordsPage = 1;
+	const wordsPerPage = 20;
 	
 	$: sortedAppearsIn = sortAppearsInList(appearsIn, appearsInSort);
 	$: sortedWords = sortWordsList(words, wordsSort);
+	$: totalWordsPages = Math.ceil(sortedWords.length / wordsPerPage);
+	$: pagedWords = sortedWords.slice((currentWordsPage - 1) * wordsPerPage, currentWordsPage * wordsPerPage);
+	
+	function resetWordsPage() { currentWordsPage = 1; }
 	
 	function sortWordsList(list: typeof words, sort: string) {
 		let result = [...list];
@@ -73,12 +79,13 @@
 				
 				// Get words containing this character
 				if (c.words) {
-					words = c.words.slice(0, 20)
+					words = c.words
 						.map(w => {
 							const wordData = data.words[w];
 							return wordData ? { ...wordData, word: w } : null;
 						})
 						.filter(Boolean) as (Word & { word: string })[];
+					currentWordsPage = 1;
 				}
 				
 				// Get characters this one appears in
@@ -164,14 +171,14 @@
 	{#if words.length > 0}
 		<div class="words-section">
 			<div class="section-header">
-				<h3>Example Words ({words.length})</h3>
-				<select class="sort-select" bind:value={wordsSort}>
+				<h3>Example Words ({sortedWords.length})</h3>
+				<select class="sort-select" bind:value={wordsSort} on:change={resetWordsPage}>
 					<option value="grade">Sort: HSK Level</option>
 					<option value="frequency">Sort: Frequency</option>
 				</select>
 			</div>
 			<div class="words-grid">
-				{#each sortedWords as word}
+				{#each pagedWords as word}
 					<a href="/word/{encodeURIComponent(word.word)}" class="word-card">
 						<div class="ruby-text">
 							{#each pairCharsWithPinyin(word.word, word.pinyin || '') as pair}
@@ -187,6 +194,17 @@
 					</a>
 				{/each}
 			</div>
+			{#if totalWordsPages > 1}
+				<div class="pagination">
+					<button disabled={currentWordsPage === 1} on:click={() => currentWordsPage = 1}>«</button>
+					<button disabled={currentWordsPage === 1} on:click={() => currentWordsPage--}>‹</button>
+					<span style="padding: 0.5rem 1rem; color: var(--text-secondary);">
+						Page {currentWordsPage} of {totalWordsPages}
+					</span>
+					<button disabled={currentWordsPage === totalWordsPages} on:click={() => currentWordsPage++}>›</button>
+					<button disabled={currentWordsPage === totalWordsPages} on:click={() => currentWordsPage = totalWordsPages}>»</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 	
