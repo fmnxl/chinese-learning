@@ -18,7 +18,10 @@ const toneMarks: Record<string, string[]> = {
  * e.g., "hao3" → "hǎo", "nü3" → "nǚ"
  */
 function convertSyllable(syllable: string): string {
-	const match = syllable.match(/^([a-züv]+)(\d)?$/i);
+	// Normalize u: notation to ü (common input method for umlaut)
+	const normalized = syllable.replace(/u:/gi, 'ü');
+	
+	const match = normalized.match(/^([a-züv]+)(\d)?$/i);
 	if (!match) return syllable;
 
 	const [, base, toneStr] = match;
