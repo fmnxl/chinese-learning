@@ -53,6 +53,11 @@ export type QuizSourceType = 'study_list' | 'grade' | 'frequency';
  */
 export type CharacterScript = 'simplified' | 'traditional' | 'both';
 
+/**
+ * Item type filter for quiz
+ */
+export type ItemTypeFilter = 'characters' | 'words' | 'both';
+
 export interface QuizSource {
 	type: QuizSourceType;
 	// For grade source
@@ -71,6 +76,7 @@ export interface QuizConfig {
 	newCardsLimit: number;
 	source: QuizSource;
 	scriptFilter: CharacterScript;
+	itemTypeFilter: ItemTypeFilter;
 }
 
 export interface QuizCard {
@@ -103,14 +109,14 @@ export interface QuizStats {
 	newLearned: number;
 }
 
-// Grade options for UI
+// Grade options for UI (using HSK 2.0 levels)
 export const GRADE_OPTIONS = [
-	{ label: 'Grade 1', min: 1, max: 1 },
-	{ label: 'Grade 2', min: 2, max: 2 },
-	{ label: 'Grade 3', min: 3, max: 3 },
-	{ label: 'Grades 1-2', min: 1, max: 2 },
-	{ label: 'Grades 1-3', min: 1, max: 3 },
-	{ label: 'Grades 4-6', min: 4, max: 6 }
+	{ label: 'HSK 1', min: 1, max: 1 },
+	{ label: 'HSK 2', min: 2, max: 2 },
+	{ label: 'HSK 3', min: 3, max: 3 },
+	{ label: 'HSK 1-2', min: 1, max: 2 },
+	{ label: 'HSK 1-3', min: 1, max: 3 },
+	{ label: 'HSK 4-6', min: 4, max: 6 }
 ];
 
 // Frequency options for UI
@@ -131,7 +137,8 @@ const DEFAULT_CONFIG: QuizConfig = {
 	includeNew: true,
 	newCardsLimit: 5,
 	source: { type: 'study_list' },
-	scriptFilter: 'simplified'
+	scriptFilter: 'simplified',
+	itemTypeFilter: 'characters'
 };
 
 // Quiz configuration store
@@ -191,6 +198,13 @@ function createQuizConfigStore() {
 		setScriptFilter: (scriptFilter: CharacterScript) => {
 			update((config) => {
 				const newConfig = { ...config, scriptFilter };
+				saveConfig(newConfig);
+				return newConfig;
+			});
+		},
+		setItemTypeFilter: (itemTypeFilter: ItemTypeFilter) => {
+			update((config) => {
+				const newConfig = { ...config, itemTypeFilter };
 				saveConfig(newConfig);
 				return newConfig;
 			});
@@ -401,10 +415,19 @@ export const quizSession = createQuizSessionStore();
  * Build review queue from study list items
  */
 function buildReviewQueue(items: StudyItem[], config: QuizConfig): QuizCard[] {
+	// Filter by item type
+	let filteredItems = items;
+	if (config.itemTypeFilter === 'characters') {
+		filteredItems = items.filter(item => item.type === 'character');
+	} else if (config.itemTypeFilter === 'words') {
+		filteredItems = items.filter(item => item.type === 'word');
+	}
+	// 'both' uses all items
+
 	const dueItems: QuizCard[] = [];
 	const newItems: QuizCard[] = [];
 
-	for (const item of items) {
+	for (const item of filteredItems) {
 		const overdueHours = getOverdueHours(item.nextReview);
 		const isNew = !item.nextReview || (item.repetitions || 0) === 0;
 

@@ -15,6 +15,7 @@
 		type QuizSource,
 		type AnswerMode,
 		type CharacterScript,
+		type ItemTypeFilter,
 		getValidAnswerModes
 	} from '$lib/srs/quiz';
 	import { formatInterval, getLearningStage, getStageColor } from '$lib/srs/sm2';
@@ -126,9 +127,15 @@
 		{ value: 'both', label: 'Both' }
 	];
 
+	const itemTypeOptions: { value: ItemTypeFilter; label: string }[] = [
+		{ value: 'characters', label: '字 Characters' },
+		{ value: 'words', label: '词 Words' },
+		{ value: 'both', label: 'Both' }
+	];
+
 	const sourceTabs = [
 		{ type: 'study_list' as const, label: '📚 Study List', icon: '📚' },
-		{ type: 'grade' as const, label: '🎓 By Grade', icon: '🎓' },
+		{ type: 'grade' as const, label: '🎓 By HSK', icon: '🎓' },
 		{ type: 'frequency' as const, label: '📈 By Frequency', icon: '📈' }
 	];
 
@@ -633,6 +640,21 @@
 					<div class="stat-card">
 						<span class="stat-value">{$studyListStats.total}</span>
 						<span class="stat-label">Total in List</span>
+					</div>
+				</div>
+
+				<div class="source-selector">
+					<h3>Item Type</h3>
+					<div class="script-options">
+						{#each itemTypeOptions as option}
+							<button
+								class="script-btn"
+								class:active={$quizConfig.itemTypeFilter === option.value}
+								on:click={() => quizConfig.setItemTypeFilter(option.value)}
+							>
+								{option.label}
+							</button>
+						{/each}
 					</div>
 				</div>
 
