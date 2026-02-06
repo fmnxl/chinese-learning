@@ -17,6 +17,7 @@ CEDICT_PATH = Path("cedict.txt")
 CHISE_IDS_DIR = Path("chise-ids-master")
 SUBTLEX_PATH = Path("SUBTLEX-CH-WF.xlsx")
 SUBTLEX_CHR_PATH = Path("SUBTLEX-CH-CHR.xlsx")
+HSK_PATH = Path("hsk_vocabulary.json")
 OUTPUT_DIR = Path("data")
 
 # 214 Kangxi Radicals with pinyin and meaning
@@ -324,6 +325,94 @@ def parse_unihan_grade_level(zip_data: bytes) -> dict:
     return grade_data
 
 
+def parse_hsk_vocabulary(path: Path) -> tuple:
+    """
+    Parse HSK vocabulary JSON from drkameleon/complete-hsk-vocabulary.
+    Returns: (word_levels, char_levels)
+    - word_levels: {simplified: level, traditional: level}
+    - char_levels: {char: min_level} (derived from words)
+    
+    Prioritizes HSK 2.0 (old-X) levels for consistency.
+    """
+    word_levels_simp = {}  # simplified word -> HSK level
+    word_levels_trad = {}  # traditional word -> HSK level
+    
+    with open(path, "r", encoding="utf-8") as f:
+        words = json.load(f)
+    
+    for word in words:
+        # Extract HSK 2.0 level (old-X) if present
+        level = None
+        for lvl in word.get("level", []):
+            if lvl.startswith("old-"):
+                try:
+                    level = int(lvl.split("-")[1])
+                    break
+                except (ValueError, IndexError):
+                    continue
+        
+        if level is None:
+            continue  # Skip words without HSK 2.0 level
+        
+        # Index by simplified
+        simplified = word.get("simplified")
+        if simplified:
+            word_levels_simp[simplified] = level
+        
+        # Index by traditional variants
+        for form in word.get("forms", []):
+            trad = form.get("traditional")
+            if trad and trad != simplified:
+                word_levels_trad[trad] = level
+    
+    # Derive character levels from words
+    char_levels = {}
+    
+    # Process simplified words
+    for word, level in word_levels_simp.items():
+        for char in word:
+            if char not in char_levels or level < char_levels[char]:
+                char_levels[char] = level
+    
+    # Process traditional words
+    for word, level in word_levels_trad.items():
+        for char in word:
+            if char not in char_levels or level < char_levels[char]:
+                char_levels[char] = level
+    
+    return (
+        {"simplified": word_levels_simp, "traditional": word_levels_trad},
+        char_levels
+    )
+
+
+def get_word_hsk_level(word: str, hsk_word_levels: dict, char_levels: dict) -> tuple:
+    """
+    Get HSK level for a word.
+    Returns: (level, is_derived)
+    
+    Priority:
+    1. Direct HSK 2.0 lookup (simplified or traditional)
+    2. Fallback: max character HSK level
+    """
+    # Try direct lookup
+    if word in hsk_word_levels["simplified"]:
+        return hsk_word_levels["simplified"][word], False
+    if word in hsk_word_levels["traditional"]:
+        return hsk_word_levels["traditional"][word], False
+    
+    # Fallback: max character level
+    max_level = 0
+    for char in word:
+        if char in char_levels:
+            max_level = max(max_level, char_levels[char])
+    
+    if max_level > 0:
+        return max_level, True
+    
+    return 0, False
+
+
 def parse_variants(zip_data: bytes) -> tuple:
     """
     Parse Unihan_Variants.txt for simplified/traditional variants.
@@ -416,7 +505,10 @@ def parse_cedict(path: Path) -> dict:
             
             # For single-character entries, extract char-level simp↔trad mappings
             # CEDICT is authoritative for these common characters
-            if len(simplified) == 1 and len(traditional) == 1:
+            # Skip entries that are "variant of" - these obscure forms shouldn't override correct mappings
+            is_variant = "variant of" in definitions.lower()
+            
+            if len(simplified) == 1 and len(traditional) == 1 and not is_variant:
                 if simplified != traditional:
                     # Only store if they differ (e.g., 么→麼, but not 冬→冬)
                     if simplified not in char_simp_to_trad:
@@ -617,11 +709,12 @@ def codepoint_to_char(cp: str) -> str:
     return chr(int(cp[2:], 16))
 
 
-def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
+def build_radicals_json(readings: dict, radical_data: dict, hsk_char_levels: dict,
+                        hsk_word_levels: dict,
                         cedict: dict, ids_data: dict, appears_in: dict,
                         word_freq: dict, char_freq: dict,
                         simp_to_trad: dict, trad_to_simp: dict) -> dict:
-    """Build the final unified JSON structure."""
+    """Build the final unified JSON structure with HSK 2.0 grading."""
     
     # Build radicals section
     radicals = {}
@@ -643,7 +736,8 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
         
         char = codepoint_to_char(codepoint)
         char_readings = readings.get(codepoint, {})
-        char_grade = grade_data.get(codepoint, {})
+        # Use HSK-derived character level instead of kGradeLevel
+        char_hsk_level = hsk_char_levels.get(char, 0)
         
         # Only include characters with definitions
         if "definition" not in char_readings:
@@ -670,7 +764,7 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
             "strokes": rs["strokes"],
             "pinyin": char_readings.get("pinyin", ""),
             "definition": char_readings["definition"],
-            "gradeLevel": char_grade.get("gradeLevel", 0),
+            "gradeLevel": char_hsk_level,
             "charFrequency": char_freq.get(char, 0),  # 0 = not ranked
             "ids": ids_info.get("ids", ""),
             "components": ids_info.get("components", []),
@@ -742,14 +836,38 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
                 char_data["gradeLevel"] = characters[trad]["gradeLevel"]
                 inherited_grades += 1
         
-        # Traditional inherits frequency from simplified
-        if char_data["charFrequency"] == 0 and char_data.get("simplified"):
+        # Traditional inherits grade from simplified (in case trad has no grade but simp does)
+        if char_data["gradeLevel"] == 0 and char_data.get("simplified"):
             simp = char_data["simplified"]
-            if simp in characters and characters[simp]["charFrequency"] > 0:
-                char_data["charFrequency"] = characters[simp]["charFrequency"]
-                inherited_freq += 1
+            if simp in characters and characters[simp]["gradeLevel"] > 0:
+                char_data["gradeLevel"] = characters[simp]["gradeLevel"]
+                inherited_grades += 1
+        
+        # Cross-inherit frequency: use the better (lower) frequency between variants
+        # This handles cases like 時 (freq 5238) which should get 时's freq (49)
+        if char_data.get("simplified"):
+            simp = char_data["simplified"]
+            if simp in characters:
+                simp_freq = characters[simp]["charFrequency"]
+                my_freq = char_data["charFrequency"]
+                # Use whichever is better (lower, but non-zero)
+                if simp_freq > 0:
+                    if my_freq == 0 or simp_freq < my_freq:
+                        char_data["charFrequency"] = simp_freq
+                        inherited_freq += 1
+        
+        if char_data.get("traditional"):
+            trad = char_data["traditional"]
+            if trad in characters:
+                trad_freq = characters[trad]["charFrequency"]
+                my_freq = char_data["charFrequency"]
+                # Use whichever is better (lower, but non-zero)
+                if trad_freq > 0:
+                    if my_freq == 0 or trad_freq < my_freq:
+                        char_data["charFrequency"] = trad_freq
+                        inherited_freq += 1
     
-    print(f"  Inherited {inherited_grades} grades (simp←trad), {inherited_freq} frequencies (trad←simp)")
+    print(f"  Inherited {inherited_grades} grades, {inherited_freq} frequencies between variants")
     
     # Add words dictionary - include all words that are referenced by characters
     referenced_words = set()
@@ -758,14 +876,26 @@ def build_radicals_json(readings: dict, radical_data: dict, grade_data: dict,
             referenced_words.add(word)
     
     words_subset = {}
+    hsk_graded = 0
+    derived_graded = 0
     for word in referenced_words:
         if word in cedict["words"]:
-            words_subset[word] = {
+            # Get HSK level for this word
+            level, is_derived = get_word_hsk_level(word, hsk_word_levels, hsk_char_levels)
+            word_entry = {
                 **cedict["words"][word],
-                "frequency": word_freq.get(word, 0)
+                "frequency": word_freq.get(word, 0),
+                "gradeLevel": level,
             }
+            if is_derived:
+                word_entry["gradeLevelDerived"] = True
+                derived_graded += 1
+            elif level > 0:
+                hsk_graded += 1
+            words_subset[word] = word_entry
     
     print(f"  Words referenced by characters: {len(referenced_words)}, with data: {len(words_subset)}")
+    print(f"  Words with HSK 2.0 level: {hsk_graded}, with derived level: {derived_graded}")
     
     return {
         "radicals": radicals,
@@ -790,9 +920,16 @@ def main():
     radical_data = parse_unihan_radical_stroke(zip_data)
     print(f"  Found {len(radical_data)} characters with radical data")
     
-    print("Parsing Unihan_DictionaryLikeData.txt...")
-    grade_data = parse_unihan_grade_level(zip_data)
-    print(f"  Found {len(grade_data)} characters with grade level data")
+    # Parse HSK vocabulary for grade levels (replaces old kGradeLevel)
+    print("Parsing HSK 2.0 vocabulary...")
+    if HSK_PATH.exists():
+        hsk_word_levels, hsk_char_levels = parse_hsk_vocabulary(HSK_PATH)
+        print(f"  Found {len(hsk_word_levels['simplified'])} words with HSK 2.0 level")
+        print(f"  Derived {len(hsk_char_levels)} character HSK levels from words")
+    else:
+        print("  HSK vocabulary file not found, using empty grade data")
+        hsk_word_levels = {"simplified": {}, "traditional": {}}
+        hsk_char_levels = {}
     
     # Parse CC-CEDICT
     print("Parsing CC-CEDICT...")
@@ -835,7 +972,8 @@ def main():
     
     # Build final JSON
     print("Building unified radicals.json...")
-    result = build_radicals_json(readings, radical_data, grade_data, 
+    result = build_radicals_json(readings, radical_data, hsk_char_levels,
+                                  hsk_word_levels,
                                   cedict, ids_data, appears_in, word_freq, char_freq,
                                   simp_to_trad, trad_to_simp)
     
