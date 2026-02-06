@@ -1,0 +1,1 @@
+"""Chinese Courses Backend Application."""
