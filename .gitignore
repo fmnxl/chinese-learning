@@ -29,3 +29,7 @@ npm-debug.log*
 # Data files (large datasets)
 *.zip
 *.xlsx
+
+# direnv
+.direnv/
+.envrc
