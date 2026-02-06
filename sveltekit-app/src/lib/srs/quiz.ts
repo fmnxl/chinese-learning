@@ -10,13 +10,38 @@ import {
 
 /**
  * Quiz mode types - what's shown on the question
+ * - recognition: See character → guess meaning
+ * - recall: See meaning → guess character
+ * - pronunciation: See character + meaning → type pinyin
  */
-export type QuizMode = 'recognition' | 'recall' | 'typing';
+export type QuizMode = 'recognition' | 'recall' | 'pronunciation';
 
 /**
  * Answer mode types - how the user responds
  */
 export type AnswerMode = 'self_rate' | 'multiple_choice' | 'typing';
+
+/**
+ * Get valid answer modes for a given quiz mode.
+ * Some combinations don't make sense:
+ * - Recognition + Typing: Typing meanings is imprecise and frustrating
+ * - Pronunciation + Multiple Choice: Can't test tone selection properly
+ * - Recall + Typing: No practical way to type Chinese characters
+ */
+export function getValidAnswerModes(quizMode: QuizMode): AnswerMode[] {
+	switch (quizMode) {
+		case 'recognition':
+			// Can't type meanings (imprecise), use self-rate or multiple choice
+			return ['self_rate', 'multiple_choice'];
+		case 'pronunciation':
+			// Can't do multiple choice for pinyin+tone, use self-rate or typing
+			return ['self_rate', 'typing'];
+		case 'recall':
+		default:
+			// No practical way to type Chinese characters
+			return ['self_rate', 'multiple_choice'];
+	}
+}
 
 /**
  * Quiz source types - where the characters come from
