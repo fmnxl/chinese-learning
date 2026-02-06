@@ -28,7 +28,9 @@ export interface Word {
 	word: string;
 	pinyin?: string;
 	definition?: string;
-	rank?: number;
+	frequency?: number;          // Frequency rank from JSON
+	gradeLevel?: number;         // HSK 1-6
+	gradeLevelDerived?: boolean; // true if inferred from characters
 }
 
 interface RadicalsData {
@@ -47,8 +49,42 @@ export async function loadData(): Promise<RadicalsData> {
 		throw new Error(`Failed to load data: ${response.status}`);
 	}
 
-	cachedData = await response.json();
-	return cachedData!;
+	const data: RadicalsData = await response.json();
+	
+	// Post-process: inherit gradeLevel and charFrequency between simplified/traditional variants
+	for (const [char, charData] of Object.entries(data.characters)) {
+		// If this is a simplified character with no grade, inherit from traditional
+		if (charData.traditional && (!charData.gradeLevel || charData.gradeLevel === 0)) {
+			const traditionalData = data.characters[charData.traditional];
+			if (traditionalData?.gradeLevel && traditionalData.gradeLevel > 0) {
+				charData.gradeLevel = traditionalData.gradeLevel;
+			}
+		}
+		
+		// If this is a traditional character, inherit better frequency from simplified
+		if (charData.simplified) {
+			const simplifiedData = data.characters[charData.simplified];
+			if (simplifiedData?.charFrequency) {
+				// Use the better (lower) frequency rank
+				if (!charData.charFrequency || simplifiedData.charFrequency < charData.charFrequency) {
+					charData.charFrequency = simplifiedData.charFrequency;
+				}
+			}
+		}
+		
+		// Also check the reverse: if this is simplified, check if traditional has better freq
+		if (charData.traditional) {
+			const traditionalData = data.characters[charData.traditional];
+			if (traditionalData?.charFrequency) {
+				if (!charData.charFrequency || traditionalData.charFrequency < charData.charFrequency) {
+					charData.charFrequency = traditionalData.charFrequency;
+				}
+			}
+		}
+	}
+	
+	cachedData = data;
+	return cachedData;
 }
 
 export async function getRadical(id: string): Promise<Radical | undefined> {
