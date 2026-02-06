@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { loadData, type Character, type Word } from '$lib/data/loader';
+	import { pairCharsWithPinyin } from '$lib/utils/pinyin';
 	import IDSTree from '$lib/components/IDSTree.svelte';
 	import AddToStudyList from '$lib/components/AddToStudyList.svelte';
 	import { openChat } from '$lib/stores/chat';
@@ -13,8 +14,23 @@
 	let allCharacters: Record<string, Character> = {};
 	let loading = true;
 	let appearsInSort = 'frequency';
+	let wordsSort = 'grade';
 	
 	$: sortedAppearsIn = sortAppearsInList(appearsIn, appearsInSort);
+	$: sortedWords = sortWordsList(words, wordsSort);
+	
+	function sortWordsList(list: typeof words, sort: string) {
+		let result = [...list];
+		switch (sort) {
+			case 'grade':
+				result.sort((a, b) => (a.gradeLevel || 99) - (b.gradeLevel || 99));
+				break;
+			case 'frequency':
+				result.sort((a, b) => (a.frequency || 999999) - (b.frequency || 999999));
+				break;
+		}
+		return result;
+	}
 	
 	function sortAppearsInList(list: typeof appearsIn, sort: string) {
 		let result = [...list];
@@ -104,8 +120,8 @@
 			<div class="hero-header">
 				<span class="pinyin">{character.pinyin || '—'}</span>
 				<div class="hero-badges">
-					{#if character.gradeLevel && character.gradeLevel > 0}
-						<span class="grade-badge grade-{character.gradeLevel}">G{character.gradeLevel}</span>
+						{#if character.gradeLevel && character.gradeLevel > 0}
+						<span class="grade-badge grade-{character.gradeLevel}">HSK {character.gradeLevel}</span>
 					{/if}
 					<span class="strokes-badge">{character.strokes || 0}画</span>
 					{#if character.charFrequency}
@@ -147,15 +163,27 @@
 	
 	{#if words.length > 0}
 		<div class="words-section">
-			<h3>Example Words</h3>
+			<div class="section-header">
+				<h3>Example Words ({words.length})</h3>
+				<select class="sort-select" bind:value={wordsSort}>
+					<option value="grade">Sort: HSK Level</option>
+					<option value="frequency">Sort: Frequency</option>
+				</select>
+			</div>
 			<div class="words-grid">
-				{#each words as word}
-					<a href="/word/{encodeURIComponent(word.word)}" class="word-tag">
-						<div class="word-header">
-							<span class="word-chars">{word.word}</span>
-							<span class="pinyin">{word.pinyin || ''}</span>
+				{#each sortedWords as word}
+					<a href="/word/{encodeURIComponent(word.word)}" class="word-card">
+						<div class="ruby-text">
+							{#each pairCharsWithPinyin(word.word, word.pinyin || '') as pair}
+								<ruby>{pair.char}<rp>(</rp><rt>{pair.pinyin}</rt><rp>)</rp></ruby>
+							{/each}
 						</div>
-						<div class="definition">{word.definition || ''}</div>
+						<div class="word-info">
+							<div class="definition">{word.definition || ''}</div>
+						</div>
+						{#if word.gradeLevel && word.gradeLevel > 0}
+							<span class="grade-badge grade-{word.gradeLevel}">HSK {word.gradeLevel}</span>
+						{/if}
 					</a>
 				{/each}
 			</div>
@@ -195,3 +223,21 @@
 {:else}
 	<div class="loading">Character not found</div>
 {/if}
+
+<style>
+	.section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+	.section-header h3 {
+		font-size: 1.25rem;
+		font-weight: 600;
+		margin: 0;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+	}
+</style>

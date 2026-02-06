@@ -78,8 +78,8 @@
 	
 	:global(.ids-level) {
 		display: flex;
-		align-items: flex-start;
-		gap: 0.5rem;
+		align-items: center;
+		gap: 0.75rem;
 		padding: 0.25rem 0;
 	}
 	
@@ -94,7 +94,7 @@
 	:global(.ids-children) {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: 0.75rem;
 		align-items: center;
 	}
 	
@@ -121,7 +121,8 @@
 	}
 	
 	:global(.component-tag .char) {
-		font-size: 1.25rem;
+		font-size: 2rem;
+		line-height: 1;
 	}
 	
 	:global(.component-tag .pinyin) {

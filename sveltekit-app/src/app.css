@@ -644,46 +644,66 @@
             gap: 0.75rem;
         }
 
-        .word-tag {
+        .word-card {
+            position: relative;
             display: flex;
             flex-direction: column;
+            gap: 0.25rem;
             padding: 0.75rem 1rem;
+            padding-right: 4rem;
             background: var(--bg-hover);
             border: 1px solid var(--border);
             border-radius: 8px;
+            text-decoration: none;
             transition: all 0.2s;
         }
 
-        .word-tag:hover {
+        .word-card:hover {
             border-color: var(--accent-secondary);
+            background: rgba(78, 205, 196, 0.05);
         }
 
-        .word-tag .word-header {
+        .word-card .ruby-text {
             display: flex;
-            align-items: baseline;
-            gap: 0.5rem;
-            margin-bottom: 0.25rem;
+            gap: 0.125rem;
         }
 
-        .word-tag .word-chars {
-            font-size: 1.1rem;
+        .word-card ruby {
+            font-size: 2rem;
             color: var(--text-primary);
+            text-align: center;
         }
 
-        .word-tag .pinyin {
+        .word-card rt {
+            font-size: 0.75rem;
             color: var(--accent-secondary);
-            font-size: 0.85rem;
+            font-weight: 500;
         }
 
-        .word-tag .definition {
+        .word-card rp {
+            display: none;
+        }
+
+        .word-card .word-info {
+            flex: 1;
+        }
+
+        .word-card .definition {
             color: var(--text-secondary);
-            font-size: 0.85rem;
+            font-size: 0.9rem;
             line-height: 1.4;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
+        }
+
+        .word-card > .grade-badge {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            white-space: nowrap;
+        }
+
+        /* Legacy word-tag (keep for backwards compat) */
+        .word-tag {
+            text-decoration: none;
         }
 
         /* Appears In Section */

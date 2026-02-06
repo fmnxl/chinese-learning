@@ -47,10 +47,13 @@
 		<div class="word-chars">{word.wordStr}</div>
 		<div class="word-pinyin">{word.pinyin || '—'}</div>
 		<div class="word-definition">{word.definition || 'No definition available'}</div>
-		<div class="word-meta">
-			{#if word.rank}
-				<span class="frequency-badge" class:common={word.rank <= 1000}>
-					#{word.rank} most common
+			<div class="word-meta">
+			{#if word.gradeLevel && word.gradeLevel > 0}
+				<span class="grade-badge grade-{word.gradeLevel}">HSK {word.gradeLevel}</span>
+			{/if}
+			{#if word.frequency}
+				<span class="frequency-badge" class:common={word.frequency <= 1000}>
+					#{word.frequency} most common
 				</span>
 			{/if}
 			<AddToStudyList type="word" id={word.wordStr} />
