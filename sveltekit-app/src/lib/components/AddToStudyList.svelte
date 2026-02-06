@@ -35,38 +35,41 @@
 	.add-button {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		border: 1px solid var(--border-color, #ddd);
-		background: white;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
+		gap: 0.4rem;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--border, #3a3a44);
+		background: var(--bg-hover, #2a2a32);
+		border-radius: 6px;
+		font-size: 0.85rem;
+		color: var(--text-secondary, #a0a0a8);
 		cursor: pointer;
 		transition: all 0.2s ease;
+		min-height: 3.125rem;
+		box-sizing: border-box;
 	}
 
 	.add-button:hover {
-		background: var(--hover-bg, #f9fafb);
-		border-color: var(--hover-border, #999);
+		border-color: var(--accent, #ff6b6b);
+		color: var(--text-primary, #e4e4e7);
 	}
 
 	.add-button.in-list {
-		background: var(--accent-bg, #fef3c7);
-		border-color: var(--accent-border, #f59e0b);
-		color: var(--accent-text, #92400e);
+		background: rgba(245, 158, 11, 0.15);
+		border-color: #f59e0b;
+		color: #fbbf24;
 	}
 
 	.add-button.in-list:hover {
-		background: var(--accent-bg-hover, #fde68a);
+		background: rgba(245, 158, 11, 0.25);
 	}
 
 	.add-button.compact {
-		padding: 0.375rem 0.625rem;
+		padding: 0.4rem 0.6rem;
 		min-width: auto;
 	}
 
 	.icon {
-		font-size: 1.125rem;
+		font-size: 1rem;
 		line-height: 1;
 	}
 
